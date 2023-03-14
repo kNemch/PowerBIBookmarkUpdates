@@ -14,14 +14,13 @@ from zipfile import ZipFile
 """Path constants"""
 # The values for these global path variables are assigned in the setup_work_dir_paths() function, depending on the CLI user input
 WORK_DIR_PATH:str = None    # workspace directory with all the data
-SOURCE_DIR_PATH:str = None  # directory with original .pbix files - CURRENTLY NOT IN USE
-TEMP_DIR_PATH:str = None    # directory for temporary files
+TEMP_DIR_PATH:str = None    # directory for temporary (unarchived) files
 RESULTS_DIR_PATH:str = None # directory for the modified .pbix files
 
 
 """FUNCTIONS"""
 # CLI
-def get_cli_args():
+def get_cli_args() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description='''============================
         \rPBI Bookmarks Monthly Update
@@ -54,20 +53,21 @@ def get_cli_args():
 # WORKING DIRECTORY - PATHS, DIRECTORIES AND FILES
 def setup_work_dir_paths(cli_work_dir_path:str):
     """Assigning the paths to the global variables"""
-    global WORK_DIR_PATH, SOURCE_DIR_PATH, TEMP_DIR_PATH, RESULTS_DIR_PATH
-    WORK_DIR_PATH = cli_work_dir_path if cli_work_dir_path else os.getcwd()  # workspace directory with all the data
-    TEMP_DIR_PATH = os.path.join(WORK_DIR_PATH, "#TEMP")      # directory for temporary files
-    RESULTS_DIR_PATH = os.path.join(WORK_DIR_PATH, "#RESULTS") # directory for the modified .pbix files
-    # SOURCE_PATH = os.path.join(WORK_DIR_PATH, "source")  # directory with original .pbix files
+    global WORK_DIR_PATH, TEMP_DIR_PATH, RESULTS_DIR_PATH
+    WORK_DIR_PATH = cli_work_dir_path if cli_work_dir_path else os.getcwd()
+    TEMP_DIR_PATH = os.path.join(WORK_DIR_PATH, "#TEMP")
+    RESULTS_DIR_PATH = os.path.join(WORK_DIR_PATH, "#RESULTS")
 
 
-def get_pbix_workspaces_and_files_pairs() -> list[list[str, str]]:
+def get_pbix_workspaces_and_filenames() -> list[tuple[str, str]]:
     pbix_paths_and_files = []
     for directory_path, _, filenames in os.walk(WORK_DIR_PATH):
         for filename in filenames:
-            if filename[-5:] == ".pbix" and RESULTS_DIR_PATH not in directory_path and TEMP_DIR_PATH not in directory_path:
-                directory_with_pbix_path = directory_path[len(WORK_DIR_PATH) + 1:]
-                pbix_paths_and_files.append([directory_with_pbix_path, filename])
+            if (filename[-5:] == ".pbix" 
+                    and RESULTS_DIR_PATH not in directory_path 
+                    and TEMP_DIR_PATH not in directory_path):
+                workspace_name = directory_path[len(WORK_DIR_PATH) + 1:]
+                pbix_paths_and_files.append((workspace_name, filename))
     return pbix_paths_and_files
 
 
@@ -92,56 +92,58 @@ def create_directories_hierarchy(pbi_workspaces):
 
 
 # ARCHIVE OPERATIONS
-def unzip_pbix(ws_subdirectory, pbix_filename):
-    # paths for the original .pbix file (archive) and temporary folder, to which the file will be unarchived
-    source_pbix_file_path = os.path.join(WORK_DIR_PATH, ws_subdirectory, pbix_filename)
-    unarchived_temp_files_dir_path = os.path.join(TEMP_DIR_PATH, ws_subdirectory, pbix_filename[:-5])
+def unzip_pbix(ws_subdir, pbix_filename):
+    src_pbix_file_path = os.path.join(WORK_DIR_PATH, ws_subdir, pbix_filename)
+    pbix_temp_files_path = os.path.join(TEMP_DIR_PATH, ws_subdir, pbix_filename[:-5])
 
-    # opening the zip file in READ mode
-    with ZipFile(source_pbix_file_path, 'r') as source_archive:
-        source_archive.extractall(path=unarchived_temp_files_dir_path)
-        print('Extracting all the files from', source_pbix_file_path, "to", unarchived_temp_files_dir_path)
+    with ZipFile(src_pbix_file_path, 'r') as source_archive:
+        source_archive.extractall(path=pbix_temp_files_path)
+        print('Extracting the files from', src_pbix_file_path, "to", pbix_temp_files_path)
 
 
-def zip_pbix(ws_subdirectory, pbix_filename):
-    result_pbix_file_path = os.path.join(RESULTS_DIR_PATH, ws_subdirectory, pbix_filename)
-    unarchived_temp_files_dir_path = os.path.join(TEMP_DIR_PATH, ws_subdirectory, pbix_filename[:-5])
+def zip_pbix(ws_subdir, pbix_filename):
+    result_pbix_file_path = os.path.join(RESULTS_DIR_PATH, ws_subdir, pbix_filename)
+    pbix_temp_files_path = os.path.join(TEMP_DIR_PATH, ws_subdir, pbix_filename[:-5])
 
     with ZipFile(result_pbix_file_path, mode="w") as result_archive:
-        for directory_path, _, filenames in os.walk(unarchived_temp_files_dir_path):
+        for directory_path, _, filenames in os.walk(pbix_temp_files_path):
             for filename in filenames:
-                # create complete filepath of file in directory
+                # where the file is located in the file system
                 file_location_in_fs = os.path.join(directory_path, filename)
                 # path for the archive hierarchy
-                file_location_in_archive = file_location_in_fs[len(unarchived_temp_files_dir_path)+1:]
+                file_location_in_archive = file_location_in_fs[len(pbix_temp_files_path)+1:]
                 # selecting the compression mode depending on archive file type
                 file_compression_mode = zipfile.ZIP_STORED if filename == "DataModel" else zipfile.ZIP_DEFLATED
-                # writing the file to result archive
                 result_archive.write(
                     file_location_in_fs, 
                     arcname=file_location_in_archive, 
                     compress_type=file_compression_mode)
     
-    print('Writing all the temporary files to', result_pbix_file_path, "from", unarchived_temp_files_dir_path)
+    print('Writing the temporary files to', result_pbix_file_path, "from", pbix_temp_files_path)
 
 
 # PBIX MODIFICATION
-def remove_security_bindings_data(path_to_unarchived_pbix):
-    security_bindings_file_path = os.path.join(path_to_unarchived_pbix, "SecurityBindings")
+def remove_security_bindings_data(pbix_temp_files_path):
+    """Deleting the PBI report's Control Sum Data. The control sum is located in the SecurityBindings file.
+    The deletion of this data enables us to open the PBI report even if the changes were made outside Power BI Desktop"""
+    
+    # Removing the SecurityBindings file
+    security_bindings_file_path = os.path.join(pbix_temp_files_path, "SecurityBindings")
     if os.path.exists(security_bindings_file_path):
         os.remove(security_bindings_file_path)
 
-    content_types_file_path = os.path.join(path_to_unarchived_pbix, "[Content_Types].xml")
-
+    # Removing the XML record about the SecurityBingings file from the [Content_Types].xml file
+    # Optional step - in most cases, it is enough to delete only the SecurityBindings file
+    content_types_file_path = os.path.join(pbix_temp_files_path, "[Content_Types].xml")
     with open(content_types_file_path, "r") as content_types_file:
         xml = content_types_file.read()
-
     updated_xml = xml.replace('<Override PartName="/SecurityBindings" ContentType="" />', "")
-    with open(content_types_file_path, "w") as content_types_file:
+    with open(content_types_file_path, "w") as content_types_file: # overwriting the file
         content_types_file.write(updated_xml)
 
 
 def get_patterns_and_replacements(cli_arg_year, cli_arg_month):
+    # If the user didn't provide the new Year and Month values in the CLI
     if not cli_arg_month and not cli_arg_year:
         current_date = datetime.date.today()
         period_for_new_values = current_date - datetime.timedelta(days=current_date.day)
@@ -155,23 +157,26 @@ def get_patterns_and_replacements(cli_arg_year, cli_arg_month):
     new_value_month_abbr = calendar.month_abbr[new_value_month]
     new_value_quarter = (new_value_month + 2) // 3
 
-    period_replacements = [
+    return [
         # pattern, new value
         ('(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)', new_value_month_abbr),  # month eng
-        ('\d{1,2}月', str(new_value_month) + "月"),   # month chn
-        ('Q [1-4]', 'Q ' + str(new_value_quarter)),   # quarter eng (with space)
-        ('Q[1-4]', 'Q' + str(new_value_quarter)),     # quarter eng (without space)
-        ('[1-4]季度', str(new_value_quarter) + "季度"),  # quarter chn
-        (str(previous_month.year) + "L", str(new_value_year) + "L"),  # year
+        ('\d{1,2}月', str(new_value_month) + "月"),    # month chn
+        ('Q [1-4]', 'Q ' + str(new_value_quarter)),    # quarter eng (with space)
+        ('Q[1-4]', 'Q' + str(new_value_quarter)),      # quarter eng (without space)
+        ('[1-4]季度', str(new_value_quarter) + "季度"), # quarter chn
+        (str(previous_month.year) + "L", str(new_value_year) + "L"),  # year with L
         (str(previous_month.year), str(new_value_year))  # year
     ]
-    return period_replacements
 
 
 def replace_period(text:str, period_pattern:str, period_new_value:str):
     search_pattern = r'\\"Value\\":\\"\'{}\'\\"'.format(period_pattern)
     new_value = r'\\"Value\\":\\"' + "'{}'".format(period_new_value) + '\\"'
     return re.sub(search_pattern, new_value, text)
+
+
+def modify_layout_file(pbix_temp_files_path):
+    pass
 
 
 
@@ -191,9 +196,13 @@ def print_cli_input(cli_args):
 
 def print_patterns(patterns_and_new_values):
     print("\nPATTERNS")
-    for period_pattern, period_new_value in period_replacements:
+    for period_pattern, period_new_value in patterns_and_new_values:
         print("{}  ->  {}".format(period_pattern, period_new_value))
 
+
+def print_file_name(ws_subdir, pbix_filename):
+    print("--------------------")
+    print("WORKSPACE", ws_subdir, ": FILE", pbix_filename)
 
 
 """MAIN FUNCTION"""
@@ -204,33 +213,41 @@ if __name__ == "__main__":
     print_cli_input(cli_args)
 
     # Generating patterns and new values
-    period_replacements = get_patterns_and_replacements(cli_args.year, cli_args.month)
-    print_patterns(period_replacements)
+    patterns_and_new_values = get_patterns_and_replacements(cli_args.year, cli_args.month)
+    print_patterns(patterns_and_new_values)
 
     # Creating directories, getting the list of PBIX files with paths to them
     setup_work_dir_paths(cli_args.directory)
-    pbix_workspaces_and_files = get_pbix_workspaces_and_files_pairs()
+    pbix_workspaces_and_files = get_pbix_workspaces_and_filenames()
     pbix_workpaces = set([pbix[0] for pbix in pbix_workspaces_and_files])
     create_directories_hierarchy(pbix_workpaces)
 
     # Processing of the .pbix files
     print("\nFILES PROCESSING")
-    for subdirectory, filename in pbix_workspaces_and_files:
-        print("WORKSPACE", subdirectory, "FILE", filename)
-        unzip_pbix(subdirectory, filename)
-        temp_pbix_path = os.path.join(TEMP_DIR_PATH, subdirectory, filename[:-5])
+    for ws_subdir, pbix_filename in pbix_workspaces_and_files:
+        print_file_name(ws_subdir, pbix_filename)
 
-        remove_security_bindings_data(temp_pbix_path)
+        # Paths to src and result files, temp directory
+        src_pbix_file_path = os.path.join(WORK_DIR_PATH, ws_subdir, pbix_filename)
+        pbix_temp_files_path = os.path.join(TEMP_DIR_PATH, ws_subdir, pbix_filename[:-5])
+        result_pbix_file_path = os.path.join(RESULTS_DIR_PATH, ws_subdir, pbix_filename)
 
-        layout_file_path = os.path.join(temp_pbix_path, "Report", "Layout")
+        unzip_pbix(ws_subdir, pbix_filename)
 
+        # Working with the unpacked archive
+        remove_security_bindings_data(pbix_temp_files_path)
+
+        layout_file_path = os.path.join(pbix_temp_files_path, "Report", "Layout")
+
+        # encoding
         with open(layout_file_path, "r", encoding="utf-16-le") as layout_file:
             layout_data = layout_file.read()
 
-        for pattern, new_value in period_replacements:
+        for pattern, new_value in patterns_and_new_values:
             layout_data = replace_period(layout_data, pattern, new_value)
         
         with open(layout_file_path, "w", encoding="utf-16-le") as layout_file:
             layout_file.write(layout_data)
         
-        zip_pbix(subdirectory, filename)
+        zip_pbix(ws_subdir, pbix_filename)
+    print("\n----\nDONE\n----")
