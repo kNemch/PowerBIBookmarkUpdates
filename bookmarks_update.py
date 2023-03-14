@@ -1,10 +1,8 @@
 import argparse
 import os
-import shutil
 import re
 import calendar
 import datetime
-import json
 import zipfile
 
 from zipfile import ZipFile
@@ -13,9 +11,9 @@ from zipfile import ZipFile
 """GLOBAL VARIABLES"""
 """Path constants"""
 # The values for these global path variables are assigned in the setup_work_dir_paths() function, depending on the CLI user input
-WORK_DIR_PATH:str = None    # workspace directory with all the data
-TEMP_DIR_PATH:str = None    # directory for temporary (unarchived) files
-RESULTS_DIR_PATH:str = None # directory for the modified .pbix files
+WORK_DIR_PATH:str = None    # Workspace directory with all the data
+TEMP_DIR_PATH:str = None    # Directory for temporary (unarchived) files
+RESULTS_DIR_PATH:str = None # Directory for the modified .pbix files
 
 
 """FUNCTIONS"""
@@ -75,7 +73,6 @@ def create_directories_hierarchy(pbi_workspaces):
     print("\nCREATING THE DIRECTORIES HIERARCHY")
 
     directories_to_create = [RESULTS_DIR_PATH, TEMP_DIR_PATH]
-
     for tech_dir in directories_to_create:
         if not os.path.exists(tech_dir):
             os.mkdir(tech_dir)
@@ -92,19 +89,13 @@ def create_directories_hierarchy(pbi_workspaces):
 
 
 # ARCHIVE OPERATIONS
-def unzip_pbix(ws_subdir, pbix_filename):
-    src_pbix_file_path = os.path.join(WORK_DIR_PATH, ws_subdir, pbix_filename)
-    pbix_temp_files_path = os.path.join(TEMP_DIR_PATH, ws_subdir, pbix_filename[:-5])
-
+def unzip_pbix(src_pbix_file_path, pbix_temp_files_path):
     with ZipFile(src_pbix_file_path, 'r') as source_archive:
         source_archive.extractall(path=pbix_temp_files_path)
         print('Extracting the files from', src_pbix_file_path, "to", pbix_temp_files_path)
 
 
-def zip_pbix(ws_subdir, pbix_filename):
-    result_pbix_file_path = os.path.join(RESULTS_DIR_PATH, ws_subdir, pbix_filename)
-    pbix_temp_files_path = os.path.join(TEMP_DIR_PATH, ws_subdir, pbix_filename[:-5])
-
+def zip_pbix(result_pbix_file_path, pbix_temp_files_path):
     with ZipFile(result_pbix_file_path, mode="w") as result_archive:
         for directory_path, _, filenames in os.walk(pbix_temp_files_path):
             for filename in filenames:
@@ -169,14 +160,26 @@ def get_patterns_and_replacements(cli_arg_year, cli_arg_month):
     ]
 
 
-def replace_period(text:str, period_pattern:str, period_new_value:str):
+def replace_period(text, period_pattern, period_new_value):
+    # The should be deffirent for search and replacement operations
     search_pattern = r'\\"Value\\":\\"\'{}\'\\"'.format(period_pattern)
     new_value = r'\\"Value\\":\\"' + "'{}'".format(period_new_value) + '\\"'
     return re.sub(search_pattern, new_value, text)
 
 
 def modify_layout_file(pbix_temp_files_path):
-    pass
+    layout_file_path = os.path.join(pbix_temp_files_path, "Report", "Layout")
+
+    # It is crucial to keep the UTF-16-LE encoding for the Layout file.
+    # Otherwise the PBI Desktop won't be able to read and open the .pbix file correclty
+    with open(layout_file_path, "r", encoding="utf-16-le") as layout_file:
+        layout_data = layout_file.read()
+
+    for pattern, new_value in patterns_and_new_values:
+        layout_data = replace_period(layout_data, pattern, new_value)
+    
+    with open(layout_file_path, "w", encoding="utf-16-le") as layout_file:
+        layout_file.write(layout_data)
 
 
 
@@ -232,22 +235,10 @@ if __name__ == "__main__":
         pbix_temp_files_path = os.path.join(TEMP_DIR_PATH, ws_subdir, pbix_filename[:-5])
         result_pbix_file_path = os.path.join(RESULTS_DIR_PATH, ws_subdir, pbix_filename)
 
-        unzip_pbix(ws_subdir, pbix_filename)
-
-        # Working with the unpacked archive
+        # Processing of the selected file
+        unzip_pbix(src_pbix_file_path, pbix_temp_files_path)
         remove_security_bindings_data(pbix_temp_files_path)
+        modify_layout_file(pbix_temp_files_path)
+        zip_pbix(result_pbix_file_path, pbix_temp_files_path)
 
-        layout_file_path = os.path.join(pbix_temp_files_path, "Report", "Layout")
-
-        # encoding
-        with open(layout_file_path, "r", encoding="utf-16-le") as layout_file:
-            layout_data = layout_file.read()
-
-        for pattern, new_value in patterns_and_new_values:
-            layout_data = replace_period(layout_data, pattern, new_value)
-        
-        with open(layout_file_path, "w", encoding="utf-16-le") as layout_file:
-            layout_file.write(layout_data)
-        
-        zip_pbix(ws_subdir, pbix_filename)
     print("\n----\nDONE\n----")
