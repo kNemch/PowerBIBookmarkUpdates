@@ -102,7 +102,7 @@ def get_pbix_workspaces_and_filenames() -> list[tuple[str, str]]:
             if (filename[-5:] == ".pbix" 
                     and RESULTS_DIR_PATH not in directory_path 
                     and TEMP_DIR_PATH not in directory_path):
-                workspace_name = directory_path[len(WORK_DIR_PATH) + 1:]
+                workspace_name = shorten_dir_path(directory_path)
                 pbix_paths_and_files.append((workspace_name, filename))
     return pbix_paths_and_files
 
@@ -121,16 +121,29 @@ def create_directories_hierarchy(pbi_workspaces):
             pbi_ws_subdirectory_path = os.path.join(tech_dir, pbi_ws_name)
             if not os.path.exists(pbi_ws_subdirectory_path):
                 os.mkdir(pbi_ws_subdirectory_path)
-                print("Created directory for {} workspace: {}".format(pbi_ws_name, pbi_ws_subdirectory_path))
+                print("Created directory for {} workspace: .\\{}".format(
+                    pbi_ws_name, 
+                    shorten_dir_path(pbi_ws_subdirectory_path)))
             else:
-                print("Workspace {} directory exists: {}".format(pbi_ws_name, pbi_ws_subdirectory_path))
+                print("Workspace {} directory exists: .\\{}".format(
+                    pbi_ws_name, 
+                    shorten_dir_path(pbi_ws_subdirectory_path)))
 
+
+def shorten_dir_path(path):
+    # Removing the Working Directory Path part from the path to improve the readability
+    # Example: C:\Users\Kateryna_Nemchenko\Desktop\Bookmark Updates\#RESULTS\ws1 -> #RESULTS\ws1
+    return path[len(WORK_DIR_PATH) + 1:]
+    
 
 # ARCHIVE OPERATIONS
 def unzip_pbix(src_pbix_file_path, pbix_temp_files_path):
     with ZipFile(src_pbix_file_path, 'r') as source_archive:
         source_archive.extractall(path=pbix_temp_files_path)
-        print('Extracting the files from', src_pbix_file_path, "to", pbix_temp_files_path)
+        print('Extracting the files from .\\{} to .\\{}'
+              .format(
+                shorten_dir_path(src_pbix_file_path), 
+                shorten_dir_path(pbix_temp_files_path)))
 
 
 def zip_pbix(result_pbix_file_path, pbix_temp_files_path):
@@ -148,7 +161,10 @@ def zip_pbix(result_pbix_file_path, pbix_temp_files_path):
                     arcname=file_location_in_archive, 
                     compress_type=file_compression_mode)
     
-    print('Archiving the temporary files to', result_pbix_file_path, "from", pbix_temp_files_path)
+    print('Archiving the temp files to .\\{} from .\\{}'
+          .format(
+            shorten_dir_path(result_pbix_file_path), 
+            shorten_dir_path(pbix_temp_files_path)))
 
 
 # PBIX MODIFICATION
@@ -169,6 +185,8 @@ def remove_security_bindings_data(pbix_temp_files_path):
     updated_xml = xml.replace('<Override PartName="/SecurityBindings" ContentType="" />', "")
     with open(content_types_file_path, "w") as content_types_file: # overwriting the file
         content_types_file.write(updated_xml)
+    
+    print("Removed the SecurityBindings file")
 
 
 def get_patterns_and_replacements(cli_arg_year, cli_arg_month, cli_arg_old_year):
@@ -198,7 +216,7 @@ def get_patterns_and_replacements(cli_arg_year, cli_arg_month, cli_arg_old_year)
         ("'Q [1-4]'",       "'Q {}'".format(new_value_quarter)),            # quarter eng (with space)
         ("'Q[1-4]'",    	"'Q{}'".format(new_value_quarter)),             # quarter eng (without space)
         ("'[1-4]季度'",     "'{}季度'".format(new_value_quarter)),          # quarter chn
-        (str(previous_month.year),          str(new_value_year)),           # year
+        #(str(previous_month.year),          str(new_value_year)),           # year
         ("{}L".format(previous_month.year), "{}L".format(new_value_year))   # year with L
     ]
 
@@ -215,6 +233,8 @@ def replace_period(text, period_pattern, period_new_value):
 
 
 def modify_layout_file(pbix_temp_files_path, patterns_and_new_values):
+    print("Modifying the Layout file")
+
     layout_file_path = os.path.join(pbix_temp_files_path, "Report", "Layout")
 
     # It is crucial to keep the UTF-16-LE encoding for the Layout file.
@@ -223,11 +243,11 @@ def modify_layout_file(pbix_temp_files_path, patterns_and_new_values):
         layout_data = layout_file.read()
 
     for pattern, new_value in patterns_and_new_values:
+        print("\t{} -> {}: {} matches".format(pattern, new_value, len(re.findall(pattern, layout_data))))
         layout_data = replace_period(layout_data, pattern, new_value)
     
     with open(layout_file_path, "w", encoding="utf-16-le") as layout_file:
         layout_file.write(layout_data)
-
 
 
 """OUTPUT FUNCTIONS (STDOUT)"""
@@ -296,6 +316,7 @@ def main():
         zip_pbix(result_pbix_file_path, pbix_temp_files_path)
 
     print("\n----\nDONE\n----")
+    print("Please, check the {} folder for result files\n".format(RESULTS_DIR_PATH))
 
 
 if __name__ == "__main__":
