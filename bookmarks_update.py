@@ -38,6 +38,9 @@ def get_cli_parser():
         \r  * Enter the arguments to specify the custom new values of Year and Month.
         \r    The Year and Month arguments should be passed together.
         \r  * Ignore the arguments, to update the report according to current date.
+        \r- Old Year Value (-o --oldYearValue)
+        \r  * Enter the value of the year, which should be replaced in slicers
+        \r  * By default, the year value from previous month is used as the old value (for Feb 2023 - Jan 2023 - same years)
         ''',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
