@@ -18,7 +18,7 @@ RESULTS_DIR_PATH:str = None # Directory for the modified .pbix files
 
 """FUNCTIONS"""
 # CLI
-def get_cli_args() -> argparse.ArgumentParser:
+def get_cli_parser():
     parser = argparse.ArgumentParser(
         description='''============================
         \rPBI Bookmarks Monthly Update
@@ -32,8 +32,8 @@ def get_cli_args() -> argparse.ArgumentParser:
         \rHOW TO USE THE SCRIPT
         \rYou can use the script either with or without the CLI arguments.
         \r- Directory argument (-d --directory):
-        \r  * Enter the argument to specify the custom location of the "workspace" directory.
-        \r  * Ignore the argument, if the script is in the "workspace" directory.
+        \r  * Enter the argument to specify the custom location of the root working directory.
+        \r  * Ignore the argument, if the script is in the root working directory.
         \r- Year and Month arguments (-y --year & -m --month)
         \r  * Enter the arguments to specify the custom new values of Year and Month.
         \r    The Year and Month arguments should be passed together.
@@ -41,11 +41,49 @@ def get_cli_args() -> argparse.ArgumentParser:
         ''',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("-d", "--directory", type=str, help="Directory, which will be the workspace for updates", required=False)
+    parser.add_argument("-d", "--directory", type=str, help="The work directory - directory with .pbix files, where all updates will occur", required=False)
     parser.add_argument("-y", "--year", type=int, help="New value for Year", required=False)
     parser.add_argument("-m", "--month", type=int, help="New value for Month", required=False)
     parser.add_argument("-o", "--oldYearValue", type=int, help="Old value for Year", required=False)
-    return parser.parse_args()
+    return parser
+
+
+def verify_cli_args(cli_parser: argparse.ArgumentParser):
+    print("\nCLI - ARGUMENTS VERIFICATION")
+
+    cli_args = cli_parser.parse_args()
+
+    def cli_error_message():
+        print("ERROR! Stopping the script execution. See the error below.\n")
+
+    # directory
+    if not cli_args.directory:
+        print("""Work Directory:
+            \rYou haven't provided any value to the -d --directory CLI argument.
+            \rThe script will use the current working directory of the script as the Working Directory with .pbix files.
+            \r\nThe DEFAULT PATH is used (current script location):\n{}\n""".format(os.getcwd()))
+    elif not os.path.exists(cli_args.directory):
+        cli_error_message()
+        raise cli_parser.error("""Directory Value Error: The path you provided for the Working Directory is invalid.
+            \rPlease, check if there are no errors in the path.\n""")
+    
+    # new year and month values
+    if cli_args.month and (cli_args.month < 1 or cli_args.month > 12):
+        cli_error_message()
+        raise cli_parser.error("""Month Value Error: The Month value should be in range between 1 and 12.\n""")
+
+    if cli_args.year and not cli_args.month:
+        cli_error_message()
+        raise cli_parser.error("""Arguments Combination Error: -m --month is required when -y --year is set.
+            \rOnly the value for the Year argument was provided (-y --year).
+            \rPlease, provide BOTH YEAR and MONTH arguments to update the report with your custom date values.\n""")
+    elif not cli_args.year and cli_args.month:
+        cli_error_message()
+        raise cli_parser.error("""Arguments Combination Error: -y --year is required when -m --month is set.
+            \rOnly the value for the Year argument was provided (-m --month).
+            \rPlease, provide BOTH YEAR and MONTH arguments to update the report with your custom date values.\n""")
+    print("OK! No issues with CLI arguments\n--------------------------------")
+
 
 
 # WORKING DIRECTORY - PATHS, DIRECTORIES AND FILES
@@ -71,7 +109,7 @@ def get_pbix_workspaces_and_filenames() -> list[tuple[str, str]]:
 
 def create_directories_hierarchy(pbi_workspaces):
     print("\nCREATING THE DIRECTORIES HIERARCHY")
-
+    print("Working Directory: {}".format(WORK_DIR_PATH))
     directories_to_create = [RESULTS_DIR_PATH, TEMP_DIR_PATH]
     for tech_dir in directories_to_create:
         if not os.path.exists(tech_dir):
@@ -176,7 +214,7 @@ def replace_period(text, period_pattern, period_new_value):
     return re.sub(search_pattern, new_value, text)
 
 
-def modify_layout_file(pbix_temp_files_path):
+def modify_layout_file(pbix_temp_files_path, patterns_and_new_values):
     layout_file_path = os.path.join(pbix_temp_files_path, "Report", "Layout")
 
     # It is crucial to keep the UTF-16-LE encoding for the Layout file.
@@ -202,8 +240,9 @@ def print_cli_input(cli_args):
     \rWorkspace Directory: {}
     \rNew values for the reports: 
     Year - {}
-    Month - {}"""
-          .format(cli_args.directory, cli_args.year, cli_args.month))
+    Month - {}
+    Old Year Value, that should be replaced - {}"""
+          .format(cli_args.directory, cli_args.year, cli_args.month, cli_args.oldYearValue))
 
 
 def print_patterns(patterns_and_new_values):
@@ -214,15 +253,16 @@ def print_patterns(patterns_and_new_values):
 
 def print_file_name(ws_subdir, pbix_filename):
     print("--------------------")
-    print("WORKSPACE", ws_subdir, ": FILE", pbix_filename)
-
+    print("WORKSPACE", ws_subdir, ": FILE", pbix_filename)    
+    
 
 """MAIN FUNCTION"""
-if __name__ == "__main__":
-
+def main():
     # Reading user CLI input
-    cli_args = get_cli_args()
+    cli_parser = get_cli_parser()
+    cli_args = cli_parser.parse_args()
     print_cli_input(cli_args)
+    verify_cli_args(cli_parser)
 
     # Generating patterns and new values
     patterns_and_new_values = get_patterns_and_replacements(cli_args.year, cli_args.month, cli_args.oldYearValue)
@@ -234,6 +274,11 @@ if __name__ == "__main__":
     pbix_workpaces = set([pbix[0] for pbix in pbix_workspaces_and_files])
     create_directories_hierarchy(pbix_workpaces)
 
+    # Stopping the script execution if no .pbix files were found in wroking directory
+    print("\nTotal number of .pbix files found in Working Directory: {}".format(len(pbix_workspaces_and_files)))
+    if len(pbix_workspaces_and_files) == 0:
+        return
+    
     # Processing of the .pbix files
     print("\nFILES PROCESSING")
     for ws_subdir, pbix_filename in pbix_workspaces_and_files:
@@ -247,7 +292,11 @@ if __name__ == "__main__":
         # Processing of the selected file
         unzip_pbix(src_pbix_file_path, pbix_temp_files_path)
         remove_security_bindings_data(pbix_temp_files_path)
-        modify_layout_file(pbix_temp_files_path)
+        modify_layout_file(pbix_temp_files_path, patterns_and_new_values)
         zip_pbix(result_pbix_file_path, pbix_temp_files_path)
 
     print("\n----\nDONE\n----")
+
+
+if __name__ == "__main__":
+    main()
