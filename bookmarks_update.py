@@ -204,6 +204,8 @@ def get_patterns_and_replacements(cli_arg_year, cli_arg_month, cli_arg_old_year)
     new_value_month_abbr = calendar.month_abbr[new_value_month]
     new_value_quarter = (new_value_month + 2) // 3
 
+    old_value_year = cli_arg_old_year if cli_arg_old_year else previous_month.year
+
     # The single quotation marks must be incuded into the Month and Quarter strings, because it indicates that the values are of type String
     # Examples, how the data is represented in the Layout configs file:
     # year (number)    -> {\"Value\":\"2022L\"}
@@ -212,12 +214,12 @@ def get_patterns_and_replacements(cli_arg_year, cli_arg_month, cli_arg_old_year)
     return [
         # pattern, new value
         ("'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'", "'{}'".format(new_value_month_abbr)),  # month eng
-        ("'\d{1,2}月'",     "'{}月'".format(new_value_month)),              # month chn
-        ("'Q [1-4]'",       "'Q {}'".format(new_value_quarter)),            # quarter eng (with space)
-        ("'Q[1-4]'",    	"'Q{}'".format(new_value_quarter)),             # quarter eng (without space)
-        ("'[1-4]季度'",     "'{}季度'".format(new_value_quarter)),          # quarter chn
-        #(str(previous_month.year),          str(new_value_year)),           # year
-        ("{}L".format(previous_month.year), "{}L".format(new_value_year))   # year with L
+        ("'\d{1,2}月'",     "'{}月'".format(new_value_month)),          # month chn
+        ("'Q [1-4]'",       "'Q {}'".format(new_value_quarter)),        # quarter eng (with space)
+        ("'Q[1-4]'",    	"'Q{}'".format(new_value_quarter)),        # quarter eng (without space)
+        ("'[1-4]季度'",     "'{}季度'".format(new_value_quarter)),      # quarter chn
+        #(str(old_value_year),          str(new_value_year)),           # year
+        ("{}L".format(old_value_year), "{}L".format(new_value_year))    # year with L
     ]
 
 
