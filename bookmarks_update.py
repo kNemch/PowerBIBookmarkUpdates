@@ -44,7 +44,7 @@ def get_cli_args() -> argparse.ArgumentParser:
     parser.add_argument("-d", "--directory", type=str, help="Directory, which will be the workspace for updates", required=False)
     parser.add_argument("-y", "--year", type=int, help="New value for Year", required=False)
     parser.add_argument("-m", "--month", type=int, help="New value for Month", required=False)
-    parser.add_argument("-p", "--previous-year", type=int, help="Old value for Year", required=False)
+    parser.add_argument("-o", "--oldYearValue", type=int, help="Old value for Year", required=False)
     return parser.parse_args()
 
 
@@ -110,7 +110,7 @@ def zip_pbix(result_pbix_file_path, pbix_temp_files_path):
                     arcname=file_location_in_archive, 
                     compress_type=file_compression_mode)
     
-    print('Writing the temporary files to', result_pbix_file_path, "from", pbix_temp_files_path)
+    print('Archiving the temporary files to', result_pbix_file_path, "from", pbix_temp_files_path)
 
 
 # PBIX MODIFICATION
@@ -133,7 +133,7 @@ def remove_security_bindings_data(pbix_temp_files_path):
         content_types_file.write(updated_xml)
 
 
-def get_patterns_and_replacements(cli_arg_year, cli_arg_month):
+def get_patterns_and_replacements(cli_arg_year, cli_arg_month, cli_arg_old_year):
     # If the user didn't provide the new Year and Month values in the CLI
     if not cli_arg_month and not cli_arg_year:
         current_date = datetime.date.today()
@@ -148,22 +148,31 @@ def get_patterns_and_replacements(cli_arg_year, cli_arg_month):
     new_value_month_abbr = calendar.month_abbr[new_value_month]
     new_value_quarter = (new_value_month + 2) // 3
 
+    # The single quotation marks must be incuded into the Month and Quarter strings, because it indicates that the values are of type String
+    # Examples, how the data is represented in the Layout configs file:
+    # year (number)    -> {\"Value\":\"2022L\"}
+    # month (string)   -> {\"Value\":\"'Jan'\"}
+    # quarter (string) -> {\"Value\":\"'Q1'\"}
     return [
         # pattern, new value
-        ('(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)', new_value_month_abbr),  # month eng
-        ('\d{1,2}月', str(new_value_month) + "月"),    # month chn
-        ('Q [1-4]', 'Q ' + str(new_value_quarter)),    # quarter eng (with space)
-        ('Q[1-4]', 'Q' + str(new_value_quarter)),      # quarter eng (without space)
-        ('[1-4]季度', str(new_value_quarter) + "季度"), # quarter chn
-        (str(previous_month.year) + "L", str(new_value_year) + "L"),  # year with L
-        (str(previous_month.year), str(new_value_year))  # year
+        ("'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'", "'{}'".format(new_value_month_abbr)),  # month eng
+        ("'\d{1,2}月'",     "'{}月'".format(new_value_month)),              # month chn
+        ("'Q [1-4]'",       "'Q {}'".format(new_value_quarter)),            # quarter eng (with space)
+        ("'Q[1-4]'",    	"'Q{}'".format(new_value_quarter)),             # quarter eng (without space)
+        ("'[1-4]季度'",     "'{}季度'".format(new_value_quarter)),          # quarter chn
+        (str(previous_month.year),          str(new_value_year)),           # year
+        ("{}L".format(previous_month.year), "{}L".format(new_value_year))   # year with L
     ]
+
+
+def create_value_expression(value):
+    return r'\\"Value\\":\\"{}\\"'.format(value)
 
 
 def replace_period(text, period_pattern, period_new_value):
     # The should be deffirent for search and replacement operations
-    search_pattern = r'\\"Value\\":\\"\'{}\'\\"'.format(period_pattern)
-    new_value = r'\\"Value\\":\\"' + "'{}'".format(period_new_value) + '\\"'
+    search_pattern = create_value_expression(period_pattern)
+    new_value = create_value_expression(period_new_value)
     return re.sub(search_pattern, new_value, text)
 
 
@@ -216,7 +225,7 @@ if __name__ == "__main__":
     print_cli_input(cli_args)
 
     # Generating patterns and new values
-    patterns_and_new_values = get_patterns_and_replacements(cli_args.year, cli_args.month)
+    patterns_and_new_values = get_patterns_and_replacements(cli_args.year, cli_args.month, cli_args.oldYearValue)
     print_patterns(patterns_and_new_values)
 
     # Creating directories, getting the list of PBIX files with paths to them
