@@ -33,7 +33,7 @@ def get_cli_parser():
         \rYou can use the script either with or without the CLI arguments.
         \r- Directory argument (-d --directory):
         \r  * Enter the argument to specify the custom location of the root working directory.
-        \r  * Ignore the argument, if the script is in the root working directory.
+        \r  * Ignore the argument, if the script is called from the working directory.
         \r- Year and Month arguments (-y --year & -m --month)
         \r  * Enter the arguments to specify the custom new values of Year and Month.
         \r    The Year and Month arguments should be passed together.
@@ -63,7 +63,7 @@ def verify_cli_args(cli_parser: argparse.ArgumentParser):
     if not cli_args.directory:
         print("""Work Directory:
             \rYou haven't provided any value to the -d --directory CLI argument.
-            \rThe script will use the current working directory of the script as the Working Directory with .pbix files.
+            \rThe script will use the current working directory (the directory, from which the script is called) as the Working Directory with .pbix files.
             \r\nThe DEFAULT PATH is used (current script location):\n{}\n""".format(os.getcwd()))
     elif not os.path.exists(cli_args.directory):
         cli_error_message()
