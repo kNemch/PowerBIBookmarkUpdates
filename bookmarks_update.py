@@ -111,6 +111,7 @@ def setup_work_dir_paths(cli_work_dir_path:str):
     global WORK_DIR_PATH, TEMP_DIR_PATH, RESULTS_DIR_PATH, ORIGINALS_DIR_PATH
     # If the CLI argument was not provided, we take the Current Working Directory as the root
     WORK_DIR_PATH = cli_work_dir_path if cli_work_dir_path else os.getcwd()
+    # IMPORTANT: the # symbol is used by get_pbix_workspaces_and_filenames() function to exclude the tech folders from file scan
     TEMP_DIR_PATH = os.path.join(WORK_DIR_PATH, "#TEMP")
     ORIGINALS_DIR_PATH = os.path.join(WORK_DIR_PATH, "#ORIGINALS BACKUP {}"
                                       .format(datetime.datetime.now().strftime("%Y-%m-%d %H-%M-%S"))
@@ -375,8 +376,8 @@ def main():
         modify_layout_file(pbix_temp_files_path, patterns_and_new_values)  # replacing the slicers values
         zip_pbix(pbix_temp_files_path, pbix_file_path)  # zipping file from root/#TEMP to root
     
-    #remove_temp_files()
-    #print("\n----\nDONE\n----")
+    remove_temp_files()
+    print("\n----\nDONE\n----")
     print("Please, check the {} folder for result files\n".format(WORK_DIR_PATH))
 
 
