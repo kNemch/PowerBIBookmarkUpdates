@@ -1,5 +1,6 @@
 import argparse
 import os
+import shutil
 import re
 import calendar
 import datetime
@@ -11,9 +12,10 @@ from zipfile import ZipFile
 """GLOBAL VARIABLES"""
 """Path constants"""
 # The values for these global path variables are assigned in the setup_work_dir_paths() function, depending on the CLI user input
-WORK_DIR_PATH:str = None    # Workspace directory with all the data
+WORK_DIR_PATH:str = None    # Working directory with all the data
+ORIGINALS_DIR_PATH:str = None     # Directory for original files
 TEMP_DIR_PATH:str = None    # Directory for temporary (unarchived) files
-RESULTS_DIR_PATH:str = None # Directory for the modified .pbix files
+#RESULTS_DIR_PATH:str = None # Directory for the modified .pbix files
 
 
 """FUNCTIONS"""
@@ -106,19 +108,27 @@ def verify_cli_args(cli_parser: argparse.ArgumentParser):
 # WORKING DIRECTORY - PATHS, DIRECTORIES AND FILES
 def setup_work_dir_paths(cli_work_dir_path:str):
     """Assigning the paths to the global variables"""
-    global WORK_DIR_PATH, TEMP_DIR_PATH, RESULTS_DIR_PATH
+    global WORK_DIR_PATH, TEMP_DIR_PATH, RESULTS_DIR_PATH, ORIGINALS_DIR_PATH
+    # If the CLI argument was not provided, we take the Current Working Directory as the root
     WORK_DIR_PATH = cli_work_dir_path if cli_work_dir_path else os.getcwd()
     TEMP_DIR_PATH = os.path.join(WORK_DIR_PATH, "#TEMP")
-    RESULTS_DIR_PATH = os.path.join(WORK_DIR_PATH, "#RESULTS")
+    ORIGINALS_DIR_PATH = os.path.join(WORK_DIR_PATH, "#ORIGINALS BACKUP {}"
+                                      .format(datetime.datetime.now().strftime("%Y-%m-%d %H-%M-%S"))
+                                      )  # The originals are moved from root folder to this folder
+    #RESULTS_DIR_PATH = WORK_DIR_PATH  # The files with updates are saved to the root folder
+    print("\nWORKING DIRECTORY PATHS:", WORK_DIR_PATH, TEMP_DIR_PATH, ORIGINALS_DIR_PATH, sep="\n")
 
 
 def get_pbix_workspaces_and_filenames() -> list[tuple[str, str]]:
+    # Scanning the Working Directory for .pbix files
+    # We take the subfolder structures as Workspace names and .pbix filenames and save these pair into the list 
+    # Is used when only the directory is passed to the script
     pbix_paths_and_files = []
     for directory_path, _, filenames in os.walk(WORK_DIR_PATH):
         for filename in filenames:
-            if (filename[-5:] == ".pbix" 
-                    and RESULTS_DIR_PATH not in directory_path 
-                    and TEMP_DIR_PATH not in directory_path):
+            if (filename[-5:] == ".pbix"
+                    # excluding the child directories of the Working Directory, which are not the workspace directories 
+                    and os.path.join(WORK_DIR_PATH, "#") not in directory_path):
                 workspace_name = shorten_dir_path(directory_path)
                 pbix_paths_and_files.append((workspace_name, filename))
     return pbix_paths_and_files
@@ -127,22 +137,22 @@ def get_pbix_workspaces_and_filenames() -> list[tuple[str, str]]:
 def create_directories_hierarchy(pbi_workspaces):
     print("\nCREATING THE DIRECTORIES HIERARCHY")
     print("Working Directory: {}".format(WORK_DIR_PATH))
-    directories_to_create = [RESULTS_DIR_PATH, TEMP_DIR_PATH]
+    directories_to_create = [ORIGINALS_DIR_PATH, TEMP_DIR_PATH]
     for tech_dir in directories_to_create:
         if not os.path.exists(tech_dir):
             os.mkdir(tech_dir)
-            print("Created tech directory: {}".format(tech_dir))
+            print("{} [Created Directory]".format(os.path.basename(tech_dir)))
         else:
-            print("Tech directory exists: {}".format(tech_dir))
+            print("{} [Directory Exists]".format(os.path.basename(tech_dir)))
         for pbi_ws_name in pbi_workspaces:
             pbi_ws_subdirectory_path = os.path.join(tech_dir, pbi_ws_name)
             if not os.path.exists(pbi_ws_subdirectory_path):
                 os.mkdir(pbi_ws_subdirectory_path)
-                print("Created directory for {} workspace: .\\{}".format(
+                print("* Created directory for [{}] workspace: .\\{}".format(
                     pbi_ws_name, 
                     shorten_dir_path(pbi_ws_subdirectory_path)))
             else:
-                print("Workspace {} directory exists: .\\{}".format(
+                print("+ Directory exists for [{}] workspace: .\\{}".format(
                     pbi_ws_name, 
                     shorten_dir_path(pbi_ws_subdirectory_path)))
 
@@ -152,6 +162,18 @@ def shorten_dir_path(path):
     # Example: C:\Users\Kateryna_Nemchenko\Desktop\Bookmark Updates\#RESULTS\ws1 -> #RESULTS\ws1
     return path[len(WORK_DIR_PATH) + 1:]
     
+
+# FILES AND DIRECTORIES MANIPULATIONS - MOVING, DELETING
+def backup_original_file(src_pbix_file_path, backup_pbix_file_path):
+    # Copying the original files from WORK_DIR to ORIGINALS_BACKUP_DIR
+    shutil.copy(src_pbix_file_path, backup_pbix_file_path)
+    print("Moved the original {} file to #ORIGINALS BACKUP folder".format(os.path.basename(src_pbix_file_path)))
+
+
+def remove_temp_files():
+    shutil.rmtree(TEMP_DIR_PATH)
+    print("Removed the #TEMP directory")
+
 
 # ARCHIVE OPERATIONS
 def unzip_pbix(src_pbix_file_path, pbix_temp_files_path):
@@ -163,7 +185,7 @@ def unzip_pbix(src_pbix_file_path, pbix_temp_files_path):
                 shorten_dir_path(pbix_temp_files_path)))
 
 
-def zip_pbix(result_pbix_file_path, pbix_temp_files_path):
+def zip_pbix(pbix_temp_files_path, result_pbix_file_path):
     with ZipFile(result_pbix_file_path, mode="w") as result_archive:
         for directory_path, _, filenames in os.walk(pbix_temp_files_path):
             for filename in filenames:
@@ -311,9 +333,21 @@ def main():
     patterns_and_new_values = get_patterns_and_replacements(cli_args.year, cli_args.month, cli_args.oldYearValue)
     print_patterns(patterns_and_new_values)
 
-    # Creating directories, getting the list of PBIX files with paths to them
+    # Creating the path strings for main directories: Working (root), #ORIGINALS BACKUP, #TEMP
     setup_work_dir_paths(cli_args.directory)
-    pbix_workspaces_and_files = get_pbix_workspaces_and_filenames()
+
+    # Determining the list of the .pbix files and the workspace directories
+    # Structure of pbix_workspaces_and_files: [("ws1", "r1"), ("ws2", "r2")] - list of tuples
+    if cli_args.workspace and cli_args.report:
+        # if the script is executed for specific report determined by user
+        # the list will contain only the values pair passed by user
+        report_filename = cli_args.report if cli_args.report[-5:] == ".pbix" else cli_args.report + ".pbix"
+        pbix_workspaces_and_files = [(cli_args.workspace, report_filename)]
+    else:
+        # if the nothing was passed to the --workspace and --report args
+        # the script searches the directory for available .pbix reports and their workspaces
+        pbix_workspaces_and_files = get_pbix_workspaces_and_filenames()
+
     pbix_workpaces = set([pbix[0] for pbix in pbix_workspaces_and_files])
     create_directories_hierarchy(pbix_workpaces)
 
@@ -327,19 +361,23 @@ def main():
     for ws_subdir, pbix_filename in pbix_workspaces_and_files:
         print_file_name(ws_subdir, pbix_filename)
 
-        # Paths to src and result files, temp directory
-        src_pbix_file_path = os.path.join(WORK_DIR_PATH, ws_subdir, pbix_filename)
+        # Paths to src and backup files, temp directory. Source file will be replaced by the Result file in root directory
+        pbix_file_path = os.path.join(WORK_DIR_PATH, ws_subdir, pbix_filename)
+        pbix_backup_file_path = os.path.join(ORIGINALS_DIR_PATH, ws_subdir, pbix_filename)
         pbix_temp_files_path = os.path.join(TEMP_DIR_PATH, ws_subdir, pbix_filename[:-5])
-        result_pbix_file_path = os.path.join(RESULTS_DIR_PATH, ws_subdir, pbix_filename)
 
+        # Creating the file backup - moving the original file to the #ORIGINALS BACKUP
+        backup_original_file(pbix_file_path, pbix_backup_file_path)
+        
         # Processing of the selected file
-        unzip_pbix(src_pbix_file_path, pbix_temp_files_path)
-        remove_security_bindings_data(pbix_temp_files_path)
-        modify_layout_file(pbix_temp_files_path, patterns_and_new_values)
-        zip_pbix(result_pbix_file_path, pbix_temp_files_path)
-
-    print("\n----\nDONE\n----")
-    print("Please, check the {} folder for result files\n".format(RESULTS_DIR_PATH))
+        unzip_pbix(pbix_file_path, pbix_temp_files_path)  # unzipping from root/#ORIGINALS BACKUP to root/#TEMP
+        remove_security_bindings_data(pbix_temp_files_path)  # removing check sum data
+        modify_layout_file(pbix_temp_files_path, patterns_and_new_values)  # replacing the slicers values
+        zip_pbix(pbix_temp_files_path, pbix_file_path)  # zipping file from root/#TEMP to root
+    
+    #remove_temp_files()
+    #print("\n----\nDONE\n----")
+    print("Please, check the {} folder for result files\n".format(WORK_DIR_PATH))
 
 
 if __name__ == "__main__":
