@@ -230,37 +230,45 @@ def remove_security_bindings_data(pbix_temp_files_path):
 
 
 def get_patterns_and_replacements(cli_arg_year, cli_arg_month, cli_arg_old_year):
-    # If the user didn't provide the new Year and Month values in the CLI
     if not cli_arg_month and not cli_arg_year:
+        # If the user didn't provide the new Year and Month values in the CLI
+        # the script takes the previous month from today as the new value
         current_date = datetime.date.today()
         period_for_new_values = current_date - datetime.timedelta(days=current_date.day)
     else:
+        # If the user provides the new value, the script uses user's value
         period_for_new_values = datetime.date(cli_arg_year, cli_arg_month, 1)
-    
-    previous_month = period_for_new_values - datetime.timedelta(days=period_for_new_values.day)
 
     new_value_year = period_for_new_values.year
     new_value_month = period_for_new_values.month
     new_value_month_abbr = calendar.month_abbr[new_value_month]
     new_value_quarter = (new_value_month + 2) // 3
 
-    old_value_year = cli_arg_old_year if cli_arg_old_year else previous_month.year
+    # Getting the month, which is previous comparing to the new period value to get the correct old year value
+    prior_month = period_for_new_values - datetime.timedelta(days=period_for_new_values.day)
+    old_value_year = cli_arg_old_year if cli_arg_old_year else prior_month.year
 
     # The single quotation marks must be incuded into the Month and Quarter strings, because it indicates that the values are of type String
     # Examples, how the data is represented in the Layout configs file:
     # year (number)    -> {\"Value\":\"2022L\"}
     # month (string)   -> {\"Value\":\"'Jan'\"}
     # quarter (string) -> {\"Value\":\"'Q1'\"}
-    return [
+
+    patterns = [
         # pattern, new value
         ("'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'", "'{}'".format(new_value_month_abbr)),  # month eng
         ("'\d{1,2}月'",     "'{}月'".format(new_value_month)),          # month chn
         ("'Q [1-4]'",       "'Q {}'".format(new_value_quarter)),        # quarter eng (with space)
         ("'Q[1-4]'",    	"'Q{}'".format(new_value_quarter)),        # quarter eng (without space)
-        ("'[1-4]季度'",     "'{}季度'".format(new_value_quarter)),      # quarter chn
-        #(str(old_value_year),          str(new_value_year)),           # year
-        ("{}L".format(old_value_year), "{}L".format(new_value_year))    # year with L
+        ("'[1-4]季度'",     "'{}季度'".format(new_value_quarter))      # quarter chn
     ]
+
+    # the year values are replaced only if the user passes the old year value or the old year value is different from the new one
+    if cli_arg_old_year or new_value_year != prior_month.year:
+        patterns.append(
+            ("{}L".format(old_value_year), "{}L".format(new_value_year))    # year with L
+        )
+    return patterns
 
 
 def create_value_expression(value):
