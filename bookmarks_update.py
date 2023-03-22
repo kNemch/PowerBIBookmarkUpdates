@@ -45,6 +45,8 @@ def get_cli_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("-d", "--directory", type=str, help="The work directory - directory with .pbix files, where all updates will occur", required=False)
+    parser.add_argument("-w", "--workspace", type=str, help="PBI Workspace directory", required=False)
+    parser.add_argument("-r", "--report", type=str, help="Name of the report without .pbix extension", required=False)
     parser.add_argument("-y", "--year", type=int, help="New value for Year", required=False)
     parser.add_argument("-m", "--month", type=int, help="New value for Month", required=False)
     parser.add_argument("-o", "--oldYearValue", type=int, help="Old value for Year", required=False)
@@ -69,6 +71,18 @@ def verify_cli_args(cli_parser: argparse.ArgumentParser):
         cli_error_message()
         raise cli_parser.error("""Directory Value Error: The path you provided for the Working Directory is invalid.
             \rPlease, check if there are no errors in the path.\n""")
+    
+    # workspace and report
+    if cli_args.workspace and not cli_args.report:
+        cli_error_message()
+        raise cli_parser.error("""Arguments Combination Error: -r --report is required when -w --workspace is set.
+            \rOnly the value for the Workspace argument was provided (-w --workspace).
+            \rPlease, provide BOTH WORKSPACE and REPORT arguments to update the specific Report located in specific Workspace.\n""")
+    elif cli_args.report and not cli_args.workspace:
+        cli_error_message()
+        raise cli_parser.error("""Arguments Combination Error: -w --workspace is required when -r --report is set.
+            \rOnly the value for the Report argument was provided (-r --report).
+            \rPlease, provide BOTH WORKSPACE and REPORT arguments to update the specific Report located in specific Workspace.\n""")
     
     # new year and month values
     if cli_args.month and (cli_args.month < 1 or cli_args.month > 12):
@@ -262,12 +276,16 @@ def print_cli_input(cli_args):
     \rMONTHLY BOOKMARKS UPDATE
     \r========================
     \r\nCLI - USER INPUT
-    \rWorkspace Directory: {}
+    \rWork Directory: {}
+    \rSpecific location of the Report in the Workspace (if provided):
+    \r * Workspace: {}
+    \r * Report: {}
     \rNew values for the reports: 
-    Year - {}
-    Month - {}
-    Old Year Value, that should be replaced - {}"""
-          .format(cli_args.directory, cli_args.year, cli_args.month, cli_args.oldYearValue))
+    \r * Year: {}
+    \r * Month: {}
+    \r * Old Year Value, that should be replaced: {}"""
+          .format(cli_args.directory, cli_args.workspace, cli_args.report, 
+                  cli_args.year, cli_args.month, cli_args.oldYearValue))
 
 
 def print_patterns(patterns_and_new_values):
