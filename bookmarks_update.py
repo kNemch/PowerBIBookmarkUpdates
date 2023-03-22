@@ -43,12 +43,16 @@ def get_cli_parser():
         \r- Old Year Value (-o --oldYearValue)
         \r  * Enter the value of the year, which should be replaced in slicers
         \r  * By default, the year value from previous month is used as the old value (for Feb 2023 - Jan 2023 - same years)
+        \r- Workspace and Report arguments (-w --workspace & -r --report)
+        \r  * The specific workspace subfolder and .pbix file, which should be processed.
+        \r    The Workspace and Report arguments should be passed together.
+        \r    The Report argument may recieve both filenames with or without extension.
         ''',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("-d", "--directory", type=str, help="The work directory - directory with .pbix files, where all updates will occur", required=False)
-    parser.add_argument("-w", "--workspace", type=str, help="PBI Workspace directory", required=False)
-    parser.add_argument("-r", "--report", type=str, help="Name of the report without .pbix extension", required=False)
+    parser.add_argument("-w", "--workspace", type=str, help="PBI Workspace subdirectory", required=False)
+    parser.add_argument("-r", "--report", type=str, help="The report filename with or without the .pbix extension", required=False)
     parser.add_argument("-y", "--year", type=int, help="New value for Year", required=False)
     parser.add_argument("-m", "--month", type=int, help="New value for Month", required=False)
     parser.add_argument("-o", "--oldYearValue", type=int, help="Old value for Year", required=False)
@@ -201,10 +205,10 @@ def zip_pbix(pbix_temp_files_path, result_pbix_file_path):
                     arcname=file_location_in_archive, 
                     compress_type=file_compression_mode)
     
-    print('Archiving the temp files to .\\{} from .\\{}'
+    print('Archiving the temp files from .\\{} to .\\{}'
           .format(
-            shorten_dir_path(result_pbix_file_path), 
-            shorten_dir_path(pbix_temp_files_path)))
+            shorten_dir_path(pbix_temp_files_path), 
+            shorten_dir_path(result_pbix_file_path)))
 
 
 # PBIX MODIFICATION
