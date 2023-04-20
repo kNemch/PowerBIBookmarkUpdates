@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 import shutil
 import re
 import calendar
@@ -15,7 +16,8 @@ from zipfile import ZipFile
 WORK_DIR_PATH:str = None    # Working directory with all the data
 ORIGINALS_DIR_PATH:str = None     # Directory for original files
 TEMP_DIR_PATH:str = None    # Directory for temporary (unarchived) files
-#RESULTS_DIR_PATH:str = None # Directory for the modified .pbix files
+ERRORS_DIR_PATH:str = None 
+RESULTS_DIR_PATH:str = None # Directory for the modified .pbix files
 
 
 """FUNCTIONS"""
@@ -112,16 +114,17 @@ def verify_cli_args(cli_parser: argparse.ArgumentParser):
 # WORKING DIRECTORY - PATHS, DIRECTORIES AND FILES
 def setup_work_dir_paths(cli_work_dir_path:str):
     """Assigning the paths to the global variables"""
-    global WORK_DIR_PATH, TEMP_DIR_PATH, RESULTS_DIR_PATH, ORIGINALS_DIR_PATH
+    global WORK_DIR_PATH, TEMP_DIR_PATH, RESULTS_DIR_PATH, ORIGINALS_DIR_PATH, ERRORS_DIR_PATH
     # If the CLI argument was not provided, we take the Current Working Directory as the root
     WORK_DIR_PATH = cli_work_dir_path if cli_work_dir_path else os.getcwd()
     # IMPORTANT: the # symbol is used by get_pbix_workspaces_and_filenames() function to exclude the tech folders from file scan
     TEMP_DIR_PATH = os.path.join(WORK_DIR_PATH, "#TEMP")
-    ORIGINALS_DIR_PATH = os.path.join(WORK_DIR_PATH, "#ORIGINALS BACKUP {}"
-                                      .format(datetime.datetime.now().strftime("%Y-%m-%d %H-%M-%S"))
-                                      )  # The originals are moved from root folder to this folder
+    ORIGINALS_DIR_PATH = os.path.join(WORK_DIR_PATH, "#ORIGINALS BACKUP") #{}"
+                                      #.format(datetime.datetime.now().strftime("%Y-%m-%d %H-%M-%S"))
+                                      #)  # The originals are moved from root folder to this folder
+    ERRORS_DIR_PATH = os.path.join(WORK_DIR_PATH, "#ERRORS")
     #RESULTS_DIR_PATH = WORK_DIR_PATH  # The files with updates are saved to the root folder
-    print("\nWORKING DIRECTORY PATHS:", WORK_DIR_PATH, TEMP_DIR_PATH, ORIGINALS_DIR_PATH, sep="\n")
+    print("\nWORKING DIRECTORY PATHS:", WORK_DIR_PATH, TEMP_DIR_PATH, ORIGINALS_DIR_PATH, ERRORS_DIR_PATH, sep="\n")
 
 
 def get_pbix_workspaces_and_filenames() -> list[tuple[str, str]]:
@@ -142,7 +145,7 @@ def get_pbix_workspaces_and_filenames() -> list[tuple[str, str]]:
 def create_directories_hierarchy(pbi_workspaces):
     print("\nCREATING THE DIRECTORIES HIERARCHY")
     print("Working Directory: {}".format(WORK_DIR_PATH))
-    directories_to_create = [ORIGINALS_DIR_PATH, TEMP_DIR_PATH]
+    directories_to_create = [ORIGINALS_DIR_PATH, TEMP_DIR_PATH, ERRORS_DIR_PATH]
     for tech_dir in directories_to_create:
         if not os.path.exists(tech_dir):
             os.mkdir(tech_dir)
@@ -175,6 +178,14 @@ def backup_original_file(src_pbix_file_path, backup_pbix_file_path):
     print("Moved the original {} file to #ORIGINALS BACKUP folder".format(os.path.basename(src_pbix_file_path)))
 
 
+def copy_error_file(src_pbix_file_path, error_pbix_file_path):
+    # Copying the original files from WORK_DIR to ORIGINALS_BACKUP_DIR
+    if not os.path.exists(error_pbix_file_path):
+        os.mkdir(error_pbix_file_path)
+    shutil.copy(src_pbix_file_path, error_pbix_file_path)
+    print("Moved the {} file to #ERRORS folder".format(os.path.basename(src_pbix_file_path)))
+
+
 def remove_temp_files():
     shutil.rmtree(TEMP_DIR_PATH)
     print("Removed the #TEMP directory")
@@ -182,6 +193,7 @@ def remove_temp_files():
 
 # ARCHIVE OPERATIONS
 def unzip_pbix(src_pbix_file_path, pbix_temp_files_path):
+    #To Do: Exception Handling
     with ZipFile(src_pbix_file_path, 'r') as source_archive:
         source_archive.extractall(path=pbix_temp_files_path)
         print('Extracting the files from .\\{} to .\\{}'
@@ -297,7 +309,7 @@ def modify_layout_file(pbix_temp_files_path, patterns_and_new_values):
         layout_data = layout_file.read()
 
     for pattern, new_value in patterns_and_new_values:
-        print("\t{} -> {}: {} matches".format(pattern, new_value, len(re.findall(pattern, layout_data))))
+        uprint("\t{} -> {}: {} matches".format(pattern, new_value, len(re.findall(pattern, layout_data))))
         layout_data = replace_period(layout_data, pattern, new_value)
     
     with open(layout_file_path, "w", encoding="utf-16-le") as layout_file:
@@ -326,12 +338,22 @@ def print_cli_input(cli_args):
 def print_patterns(patterns_and_new_values):
     print("\nPATTERNS")
     for period_pattern, period_new_value in patterns_and_new_values:
-        print("{}  ->  {}".format(period_pattern, period_new_value))
+        uprint("{}  ->  {}".format(period_pattern, period_new_value))
 
 
 def print_file_name(ws_subdir, pbix_filename):
     print("--------------------")
-    print("WORKSPACE", ws_subdir, ": FILE", pbix_filename)    
+    print("WORKSPACE", ws_subdir, ": FILE", pbix_filename)
+
+
+# The function that replaces non-UTF-8 symbols with codes (for PowerShell)
+def uprint(*objects, sep=' ', end='\n', file=sys.stdout):
+    enc = file.encoding
+    if enc == 'UTF-8':
+        print(*objects, sep=sep, end=end, file=file)
+    else:
+        f = lambda obj: str(obj).encode(enc, errors='backslashreplace').decode(enc)
+        print(*map(f, objects), sep=sep, end=end, file=file)
     
 
 """MAIN FUNCTION"""
@@ -378,15 +400,29 @@ def main():
         pbix_file_path = os.path.join(WORK_DIR_PATH, ws_subdir, pbix_filename)
         pbix_backup_file_path = os.path.join(ORIGINALS_DIR_PATH, ws_subdir, pbix_filename)
         pbix_temp_files_path = os.path.join(TEMP_DIR_PATH, ws_subdir, pbix_filename[:-5])
+        pbix_error_file_path = os.path.join(ERRORS_DIR_PATH, ws_subdir, pbix_filename)
 
         # Creating the file backup - moving the original file to the #ORIGINALS BACKUP
         backup_original_file(pbix_file_path, pbix_backup_file_path)
         
         # Processing of the selected file
-        unzip_pbix(pbix_file_path, pbix_temp_files_path)  # unzipping from root/#ORIGINALS BACKUP to root/#TEMP
-        remove_security_bindings_data(pbix_temp_files_path)  # removing check sum data
-        modify_layout_file(pbix_temp_files_path, patterns_and_new_values)  # replacing the slicers values
-        zip_pbix(pbix_temp_files_path, pbix_file_path)  # zipping file from root/#TEMP to root
+        try:
+            unzip_pbix(pbix_file_path, pbix_temp_files_path)  # unzipping from root/#ORIGINALS BACKUP to root/#TEMP
+            remove_security_bindings_data(pbix_temp_files_path)  # removing check sum data
+            modify_layout_file(pbix_temp_files_path, patterns_and_new_values)  # replacing the slicers values
+            zip_pbix(pbix_temp_files_path, pbix_file_path)  # zipping file from root/#TEMP to root
+
+        # If there are any errors, the original file is copied to the # ERRORS folder
+        except zipfile.BadZipFile as bad_zip_exception:
+            copy_error_file(pbix_backup_file_path, pbix_error_file_path)
+            print("Invalid zip file: " + pbix_filename)
+            print(str(bad_zip_exception))
+        except Exception as e:
+            copy_error_file(pbix_backup_file_path, pbix_error_file_path)
+            print("Error with " + pbix_filename)
+            print(str(e))
+
+            
     
     remove_temp_files()
     print("\n----\nDONE\n----")
