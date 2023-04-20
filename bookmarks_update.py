@@ -1,5 +1,7 @@
 import argparse
 import os
+import sys
+import shutil
 import re
 import calendar
 import datetime
@@ -11,8 +13,10 @@ from zipfile import ZipFile
 """GLOBAL VARIABLES"""
 """Path constants"""
 # The values for these global path variables are assigned in the setup_work_dir_paths() function, depending on the CLI user input
-WORK_DIR_PATH:str = None    # Workspace directory with all the data
+WORK_DIR_PATH:str = None    # Working directory with all the data
+ORIGINALS_DIR_PATH:str = None     # Directory for original files
 TEMP_DIR_PATH:str = None    # Directory for temporary (unarchived) files
+ERRORS_DIR_PATH:str = None 
 RESULTS_DIR_PATH:str = None # Directory for the modified .pbix files
 
 
@@ -41,10 +45,16 @@ def get_cli_parser():
         \r- Old Year Value (-o --oldYearValue)
         \r  * Enter the value of the year, which should be replaced in slicers
         \r  * By default, the year value from previous month is used as the old value (for Feb 2023 - Jan 2023 - same years)
+        \r- Workspace and Report arguments (-w --workspace & -r --report)
+        \r  * The specific workspace subfolder and .pbix file, which should be processed.
+        \r    The Workspace and Report arguments should be passed together.
+        \r    The Report argument may recieve both filenames with or without extension.
         ''',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("-d", "--directory", type=str, help="The work directory - directory with .pbix files, where all updates will occur", required=False)
+    parser.add_argument("-w", "--workspace", type=str, help="PBI Workspace subdirectory", required=False)
+    parser.add_argument("-r", "--report", type=str, help="The report filename with or without the .pbix extension", required=False)
     parser.add_argument("-y", "--year", type=int, help="New value for Year", required=False)
     parser.add_argument("-m", "--month", type=int, help="New value for Month", required=False)
     parser.add_argument("-o", "--oldYearValue", type=int, help="Old value for Year", required=False)
@@ -70,6 +80,18 @@ def verify_cli_args(cli_parser: argparse.ArgumentParser):
         raise cli_parser.error("""Directory Value Error: The path you provided for the Working Directory is invalid.
             \rPlease, check if there are no errors in the path.\n""")
     
+    # workspace and report
+    if cli_args.workspace and not cli_args.report:
+        cli_error_message()
+        raise cli_parser.error("""Arguments Combination Error: -r --report is required when -w --workspace is set.
+            \rOnly the value for the Workspace argument was provided (-w --workspace).
+            \rPlease, provide BOTH WORKSPACE and REPORT arguments to update the specific Report located in specific Workspace.\n""")
+    elif cli_args.report and not cli_args.workspace:
+        cli_error_message()
+        raise cli_parser.error("""Arguments Combination Error: -w --workspace is required when -r --report is set.
+            \rOnly the value for the Report argument was provided (-r --report).
+            \rPlease, provide BOTH WORKSPACE and REPORT arguments to update the specific Report located in specific Workspace.\n""")
+    
     # new year and month values
     if cli_args.month and (cli_args.month < 1 or cli_args.month > 12):
         cli_error_message()
@@ -92,19 +114,29 @@ def verify_cli_args(cli_parser: argparse.ArgumentParser):
 # WORKING DIRECTORY - PATHS, DIRECTORIES AND FILES
 def setup_work_dir_paths(cli_work_dir_path:str):
     """Assigning the paths to the global variables"""
-    global WORK_DIR_PATH, TEMP_DIR_PATH, RESULTS_DIR_PATH
+    global WORK_DIR_PATH, TEMP_DIR_PATH, RESULTS_DIR_PATH, ORIGINALS_DIR_PATH, ERRORS_DIR_PATH
+    # If the CLI argument was not provided, we take the Current Working Directory as the root
     WORK_DIR_PATH = cli_work_dir_path if cli_work_dir_path else os.getcwd()
+    # IMPORTANT: the # symbol is used by get_pbix_workspaces_and_filenames() function to exclude the tech folders from file scan
     TEMP_DIR_PATH = os.path.join(WORK_DIR_PATH, "#TEMP")
-    RESULTS_DIR_PATH = os.path.join(WORK_DIR_PATH, "#RESULTS")
+    ORIGINALS_DIR_PATH = os.path.join(WORK_DIR_PATH, "#ORIGINALS BACKUP") #{}"
+                                      #.format(datetime.datetime.now().strftime("%Y-%m-%d %H-%M-%S"))
+                                      #)  # The originals are moved from root folder to this folder
+    ERRORS_DIR_PATH = os.path.join(WORK_DIR_PATH, "#ERRORS")
+    #RESULTS_DIR_PATH = WORK_DIR_PATH  # The files with updates are saved to the root folder
+    print("\nWORKING DIRECTORY PATHS:", WORK_DIR_PATH, TEMP_DIR_PATH, ORIGINALS_DIR_PATH, ERRORS_DIR_PATH, sep="\n")
 
 
 def get_pbix_workspaces_and_filenames() -> list[tuple[str, str]]:
+    # Scanning the Working Directory for .pbix files
+    # We take the subfolder structures as Workspace names and .pbix filenames and save these pair into the list 
+    # Is used when only the directory is passed to the script
     pbix_paths_and_files = []
     for directory_path, _, filenames in os.walk(WORK_DIR_PATH):
         for filename in filenames:
-            if (filename[-5:] == ".pbix" 
-                    and RESULTS_DIR_PATH not in directory_path 
-                    and TEMP_DIR_PATH not in directory_path):
+            if (filename[-5:] == ".pbix"
+                    # excluding the child directories of the Working Directory, which are not the workspace directories 
+                    and os.path.join(WORK_DIR_PATH, "#") not in directory_path):
                 workspace_name = shorten_dir_path(directory_path)
                 pbix_paths_and_files.append((workspace_name, filename))
     return pbix_paths_and_files
@@ -113,22 +145,22 @@ def get_pbix_workspaces_and_filenames() -> list[tuple[str, str]]:
 def create_directories_hierarchy(pbi_workspaces):
     print("\nCREATING THE DIRECTORIES HIERARCHY")
     print("Working Directory: {}".format(WORK_DIR_PATH))
-    directories_to_create = [RESULTS_DIR_PATH, TEMP_DIR_PATH]
+    directories_to_create = [ORIGINALS_DIR_PATH, TEMP_DIR_PATH, ERRORS_DIR_PATH]
     for tech_dir in directories_to_create:
         if not os.path.exists(tech_dir):
             os.mkdir(tech_dir)
-            print("Created tech directory: {}".format(tech_dir))
+            print("{} [Created Directory]".format(os.path.basename(tech_dir)))
         else:
-            print("Tech directory exists: {}".format(tech_dir))
+            print("{} [Directory Exists]".format(os.path.basename(tech_dir)))
         for pbi_ws_name in pbi_workspaces:
             pbi_ws_subdirectory_path = os.path.join(tech_dir, pbi_ws_name)
             if not os.path.exists(pbi_ws_subdirectory_path):
                 os.mkdir(pbi_ws_subdirectory_path)
-                print("Created directory for {} workspace: .\\{}".format(
+                print("* Created directory for [{}] workspace: .\\{}".format(
                     pbi_ws_name, 
                     shorten_dir_path(pbi_ws_subdirectory_path)))
             else:
-                print("Workspace {} directory exists: .\\{}".format(
+                print("+ Directory exists for [{}] workspace: .\\{}".format(
                     pbi_ws_name, 
                     shorten_dir_path(pbi_ws_subdirectory_path)))
 
@@ -139,8 +171,29 @@ def shorten_dir_path(path):
     return path[len(WORK_DIR_PATH) + 1:]
     
 
+# FILES AND DIRECTORIES MANIPULATIONS - MOVING, DELETING
+def backup_original_file(src_pbix_file_path, backup_pbix_file_path):
+    # Copying the original files from WORK_DIR to ORIGINALS_BACKUP_DIR
+    shutil.copy(src_pbix_file_path, backup_pbix_file_path)
+    print("Moved the original {} file to #ORIGINALS BACKUP folder".format(os.path.basename(src_pbix_file_path)))
+
+
+def copy_error_file(src_pbix_file_path, error_pbix_file_path):
+    # Copying the original files from WORK_DIR to ORIGINALS_BACKUP_DIR
+    if not os.path.exists(error_pbix_file_path):
+        os.mkdir(error_pbix_file_path)
+    shutil.copy(src_pbix_file_path, error_pbix_file_path)
+    print("Moved the {} file to #ERRORS folder".format(os.path.basename(src_pbix_file_path)))
+
+
+def remove_temp_files():
+    shutil.rmtree(TEMP_DIR_PATH)
+    print("Removed the #TEMP directory")
+
+
 # ARCHIVE OPERATIONS
 def unzip_pbix(src_pbix_file_path, pbix_temp_files_path):
+    #To Do: Exception Handling
     with ZipFile(src_pbix_file_path, 'r') as source_archive:
         source_archive.extractall(path=pbix_temp_files_path)
         print('Extracting the files from .\\{} to .\\{}'
@@ -149,7 +202,7 @@ def unzip_pbix(src_pbix_file_path, pbix_temp_files_path):
                 shorten_dir_path(pbix_temp_files_path)))
 
 
-def zip_pbix(result_pbix_file_path, pbix_temp_files_path):
+def zip_pbix(pbix_temp_files_path, result_pbix_file_path):
     with ZipFile(result_pbix_file_path, mode="w") as result_archive:
         for directory_path, _, filenames in os.walk(pbix_temp_files_path):
             for filename in filenames:
@@ -164,10 +217,10 @@ def zip_pbix(result_pbix_file_path, pbix_temp_files_path):
                     arcname=file_location_in_archive, 
                     compress_type=file_compression_mode)
     
-    print('Archiving the temp files to .\\{} from .\\{}'
+    print('Archiving the temp files from .\\{} to .\\{}'
           .format(
-            shorten_dir_path(result_pbix_file_path), 
-            shorten_dir_path(pbix_temp_files_path)))
+            shorten_dir_path(pbix_temp_files_path), 
+            shorten_dir_path(result_pbix_file_path)))
 
 
 # PBIX MODIFICATION
@@ -193,37 +246,45 @@ def remove_security_bindings_data(pbix_temp_files_path):
 
 
 def get_patterns_and_replacements(cli_arg_year, cli_arg_month, cli_arg_old_year):
-    # If the user didn't provide the new Year and Month values in the CLI
     if not cli_arg_month and not cli_arg_year:
+        # If the user didn't provide the new Year and Month values in the CLI
+        # the script takes the previous month from today as the new value
         current_date = datetime.date.today()
         period_for_new_values = current_date - datetime.timedelta(days=current_date.day)
     else:
+        # If the user provides the new value, the script uses user's value
         period_for_new_values = datetime.date(cli_arg_year, cli_arg_month, 1)
-    
-    previous_month = period_for_new_values - datetime.timedelta(days=period_for_new_values.day)
 
     new_value_year = period_for_new_values.year
     new_value_month = period_for_new_values.month
     new_value_month_abbr = calendar.month_abbr[new_value_month]
     new_value_quarter = (new_value_month + 2) // 3
 
-    old_value_year = cli_arg_old_year if cli_arg_old_year else previous_month.year
+    # Getting the month, which is previous comparing to the new period value to get the correct old year value
+    prior_month = period_for_new_values - datetime.timedelta(days=period_for_new_values.day)
+    old_value_year = cli_arg_old_year if cli_arg_old_year else prior_month.year
 
     # The single quotation marks must be incuded into the Month and Quarter strings, because it indicates that the values are of type String
     # Examples, how the data is represented in the Layout configs file:
     # year (number)    -> {\"Value\":\"2022L\"}
     # month (string)   -> {\"Value\":\"'Jan'\"}
     # quarter (string) -> {\"Value\":\"'Q1'\"}
-    return [
+
+    patterns = [
         # pattern, new value
         ("'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'", "'{}'".format(new_value_month_abbr)),  # month eng
         ("'\d{1,2}月'",     "'{}月'".format(new_value_month)),          # month chn
         ("'Q [1-4]'",       "'Q {}'".format(new_value_quarter)),        # quarter eng (with space)
         ("'Q[1-4]'",    	"'Q{}'".format(new_value_quarter)),        # quarter eng (without space)
-        ("'[1-4]季度'",     "'{}季度'".format(new_value_quarter)),      # quarter chn
-        #(str(old_value_year),          str(new_value_year)),           # year
-        ("{}L".format(old_value_year), "{}L".format(new_value_year))    # year with L
+        ("'[1-4]季度'",     "'{}季度'".format(new_value_quarter))      # quarter chn
     ]
+
+    # the year values are replaced only if the user passes the old year value or the old year value is different from the new one
+    if cli_arg_old_year or new_value_year != prior_month.year:
+        patterns.append(
+            ("{}L".format(old_value_year), "{}L".format(new_value_year))    # year with L
+        )
+    return patterns
 
 
 def create_value_expression(value):
@@ -248,7 +309,7 @@ def modify_layout_file(pbix_temp_files_path, patterns_and_new_values):
         layout_data = layout_file.read()
 
     for pattern, new_value in patterns_and_new_values:
-        print("\t{} -> {}: {} matches".format(pattern, new_value, len(re.findall(pattern, layout_data))))
+        uprint("\t{} -> {}: {} matches".format(pattern, new_value, len(re.findall(pattern, layout_data))))
         layout_data = replace_period(layout_data, pattern, new_value)
     
     with open(layout_file_path, "w", encoding="utf-16-le") as layout_file:
@@ -262,23 +323,37 @@ def print_cli_input(cli_args):
     \rMONTHLY BOOKMARKS UPDATE
     \r========================
     \r\nCLI - USER INPUT
-    \rWorkspace Directory: {}
+    \rWork Directory: {}
+    \rSpecific location of the Report in the Workspace (if provided):
+    \r * Workspace: {}
+    \r * Report: {}
     \rNew values for the reports: 
-    Year - {}
-    Month - {}
-    Old Year Value, that should be replaced - {}"""
-          .format(cli_args.directory, cli_args.year, cli_args.month, cli_args.oldYearValue))
+    \r * Year: {}
+    \r * Month: {}
+    \r * Old Year Value, that should be replaced: {}"""
+          .format(cli_args.directory, cli_args.workspace, cli_args.report, 
+                  cli_args.year, cli_args.month, cli_args.oldYearValue))
 
 
 def print_patterns(patterns_and_new_values):
     print("\nPATTERNS")
     for period_pattern, period_new_value in patterns_and_new_values:
-        print("{}  ->  {}".format(period_pattern, period_new_value))
+        uprint("{}  ->  {}".format(period_pattern, period_new_value))
 
 
 def print_file_name(ws_subdir, pbix_filename):
     print("--------------------")
-    print("WORKSPACE", ws_subdir, ": FILE", pbix_filename)    
+    print("WORKSPACE", ws_subdir, ": FILE", pbix_filename)
+
+
+# The function that replaces non-UTF-8 symbols with codes (for PowerShell)
+def uprint(*objects, sep=' ', end='\n', file=sys.stdout):
+    enc = file.encoding
+    if enc == 'UTF-8':
+        print(*objects, sep=sep, end=end, file=file)
+    else:
+        f = lambda obj: str(obj).encode(enc, errors='backslashreplace').decode(enc)
+        print(*map(f, objects), sep=sep, end=end, file=file)
     
 
 """MAIN FUNCTION"""
@@ -293,9 +368,21 @@ def main():
     patterns_and_new_values = get_patterns_and_replacements(cli_args.year, cli_args.month, cli_args.oldYearValue)
     print_patterns(patterns_and_new_values)
 
-    # Creating directories, getting the list of PBIX files with paths to them
+    # Creating the path strings for main directories: Working (root), #ORIGINALS BACKUP, #TEMP
     setup_work_dir_paths(cli_args.directory)
-    pbix_workspaces_and_files = get_pbix_workspaces_and_filenames()
+
+    # Determining the list of the .pbix files and the workspace directories
+    # Structure of pbix_workspaces_and_files: [("ws1", "r1"), ("ws2", "r2")] - list of tuples
+    if cli_args.workspace and cli_args.report:
+        # if the script is executed for specific report determined by user
+        # the list will contain only the values pair passed by user
+        report_filename = cli_args.report if cli_args.report[-5:] == ".pbix" else cli_args.report + ".pbix"
+        pbix_workspaces_and_files = [(cli_args.workspace, report_filename)]
+    else:
+        # if the nothing was passed to the --workspace and --report args
+        # the script searches the directory for available .pbix reports and their workspaces
+        pbix_workspaces_and_files = get_pbix_workspaces_and_filenames()
+
     pbix_workpaces = set([pbix[0] for pbix in pbix_workspaces_and_files])
     create_directories_hierarchy(pbix_workpaces)
 
@@ -309,19 +396,37 @@ def main():
     for ws_subdir, pbix_filename in pbix_workspaces_and_files:
         print_file_name(ws_subdir, pbix_filename)
 
-        # Paths to src and result files, temp directory
-        src_pbix_file_path = os.path.join(WORK_DIR_PATH, ws_subdir, pbix_filename)
+        # Paths to src and backup files, temp directory. Source file will be replaced by the Result file in root directory
+        pbix_file_path = os.path.join(WORK_DIR_PATH, ws_subdir, pbix_filename)
+        pbix_backup_file_path = os.path.join(ORIGINALS_DIR_PATH, ws_subdir, pbix_filename)
         pbix_temp_files_path = os.path.join(TEMP_DIR_PATH, ws_subdir, pbix_filename[:-5])
-        result_pbix_file_path = os.path.join(RESULTS_DIR_PATH, ws_subdir, pbix_filename)
+        pbix_error_file_path = os.path.join(ERRORS_DIR_PATH, ws_subdir, pbix_filename)
 
+        # Creating the file backup - moving the original file to the #ORIGINALS BACKUP
+        backup_original_file(pbix_file_path, pbix_backup_file_path)
+        
         # Processing of the selected file
-        unzip_pbix(src_pbix_file_path, pbix_temp_files_path)
-        remove_security_bindings_data(pbix_temp_files_path)
-        modify_layout_file(pbix_temp_files_path, patterns_and_new_values)
-        zip_pbix(result_pbix_file_path, pbix_temp_files_path)
+        try:
+            unzip_pbix(pbix_file_path, pbix_temp_files_path)  # unzipping from root/#ORIGINALS BACKUP to root/#TEMP
+            remove_security_bindings_data(pbix_temp_files_path)  # removing check sum data
+            modify_layout_file(pbix_temp_files_path, patterns_and_new_values)  # replacing the slicers values
+            zip_pbix(pbix_temp_files_path, pbix_file_path)  # zipping file from root/#TEMP to root
 
+        # If there are any errors, the original file is copied to the # ERRORS folder
+        except zipfile.BadZipFile as bad_zip_exception:
+            copy_error_file(pbix_backup_file_path, pbix_error_file_path)
+            print("Invalid zip file: " + pbix_filename)
+            print(str(bad_zip_exception))
+        except Exception as e:
+            copy_error_file(pbix_backup_file_path, pbix_error_file_path)
+            print("Error with " + pbix_filename)
+            print(str(e))
+
+            
+    
+    remove_temp_files()
     print("\n----\nDONE\n----")
-    print("Please, check the {} folder for result files\n".format(RESULTS_DIR_PATH))
+    print("Please, check the {} folder for result files\n".format(WORK_DIR_PATH))
 
 
 if __name__ == "__main__":
