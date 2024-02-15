@@ -12,7 +12,7 @@ Login-PowerBI  –Environment Public
 #$PBIWorkspace = Get-PowerBIWorkspace 							# Collect all workspaces you have access to
 #$PBIWorkspace = Get-PowerBIWorkspace -Name 'My Workspace Name' # Use the -Name parameter to limit to one workspace
 
-$prod = 'Workspace1', 'Workspace2'
+$prod = 'Bookmarks Automation Event', 'Workspace for Practice'
 
 $PBIWorkspace = @()
 ForEach($ws in $prod)
@@ -21,9 +21,9 @@ ForEach($ws in $prod)
 }
 
 # Now collect todays date
-$TodaysDate = Get-Date –Format "yyyyMMdd" 
+$TodaysDate = Get-Date –Format "yyyyMMdd-HHmm" 
 # Almost finished: Build the outputpath. This Outputpath creates a news map, based on todays date
-$OutPutPath = "C:\Users\Kateryna_Nemchenko\Desktop\PowerBIReportsBackup" + $TodaysDate 
+$OutPutPath = "C:\Users\Kateryna_Nemchenko\Desktop\PowerBIReportsBackup\" + $TodaysDate 
 
 
 # Now loop through the workspaces, hence the ForEach
@@ -43,34 +43,42 @@ ForEach($Workspace in $PBIWorkspace)
 	$PBIReports = Get-PowerBIReport –WorkspaceId $Workspace.Id		# Collect all reports from the workspace we selected.
 	#$PBIReports = Get-PowerBIReport -WorkspaceId $Workspace.Id -Name "My Report Name" # Use the -Name parameter to limit to one report
 		
-		# Now loop through these reports: 
-		ForEach($Report in $PBIReports)
+	if ($PBIReports.Count -eq 0) {
+		Write-Host "There are no reports in the ["$Workspace.name"] workspace."
+		Continue
+	} else {
+		Write-Host "There are "$PBIReports.Count" reports in the ["$Workspace.name"] workspace."
+	}
+
+	# Now loop through these reports: 
+	ForEach($Report in $PBIReports)
+	{
+		# Your PowerShell comandline will say Downloading Workspacename Reportname
+		Write-Host "Downloading "$Workspace.name":" $Report.name 
+		
+		# The final collection including folder structure + file name is created.
+		$OutputFile = $OutPutPath + "\" + $Workspace.name + "\" + $Report.name + ".pbix"
+		
+		# If the file exists, delete it first; otherwise, the Export-PowerBIReport will fail.
+		if (Test-Path $OutputFile)
 		{
-			# Your PowerShell comandline will say Downloading Workspacename Reportname
-			Write-Host "Downloading "$Workspace.name":" $Report.name 
-			
-			# The final collection including folder structure + file name is created.
-			$OutputFile = $OutPutPath + "\" + $Workspace.name + "\" + $Report.name + ".pbix"
-			
-			# If the file exists, delete it first; otherwise, the Export-PowerBIReport will fail.
-			if (Test-Path $OutputFile)
-			{
-				Remove-Item $OutputFile
-			}
-			
-			# The pbix is now really getting downloaded
-			Export-PowerBIReport –WorkspaceId $Workspace.ID –Id $Report.ID –OutFile $OutputFile
-            
-			# Processing the file with Python
-			Write-Host "Proccessing "$Workspace.name":" $Report.name
-            python bookmarks_update.py --directory $OutPutPath --workspace $Workspace.name --report $Report.name
-            
-            # New-PowerBIReport doesn't like dots in Name parameter
-			Write-Host "Sending to PBI portal "$Workspace.name":" $Report.name
-            New-PowerBIReport -Path $OutputFile -Name $Report.name -WorkspaceId $Workspace.ID -ConflictAction CreateOrOverwrite
-            
+			Remove-Item $OutputFile
 		}
+		
+		# The pbix is now really getting downloaded
+		Export-PowerBIReport –WorkspaceId $Workspace.ID –Id $Report.ID –OutFile $OutputFile
+		
+		# Processing the file with Python
+		Write-Host "Proccessing "$Workspace.name":" $Report.name
+		python bookmarks_update.py --directory $OutPutPath --workspace $Workspace.name --report $Report.name
+		
+		# New-PowerBIReport doesn't like dots in Name parameter
+		Write-Host "Sending to PBI portal "$Workspace.name":" $Report.name
+		New-PowerBIReport -Path $OutputFile -Name $Report.name -WorkspaceId $Workspace.ID -ConflictAction CreateOrOverwrite
+	}
 }
 
+Write-Host "DONE"
+Pause
 
 #Set-ExecutionPolicy Restricted
