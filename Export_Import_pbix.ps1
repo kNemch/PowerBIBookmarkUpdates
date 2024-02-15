@@ -12,7 +12,15 @@ Login-PowerBI  –Environment Public
 #$PBIWorkspace = Get-PowerBIWorkspace 							# Collect all workspaces you have access to
 #$PBIWorkspace = Get-PowerBIWorkspace -Name 'My Workspace Name' # Use the -Name parameter to limit to one workspace
 
-$prod = 'Bookmarks Automation Event', 'Workspace for Practice'
+Write-Host "============================="
+Write-Host "Defining Workspaces to update"
+Write-Host "============================="
+
+$prod = @(
+    'Bookmarks Automation Event',
+	'Workspace for Practice'
+)
+
 
 $PBIWorkspace = @()
 ForEach($ws in $prod)
@@ -48,33 +56,52 @@ ForEach($Workspace in $PBIWorkspace)
 		Continue
 	} else {
 		Write-Host "There are "$PBIReports.Count" reports in the ["$Workspace.name"] workspace."
+		ForEach($Report in $PBIReports) {
+			Write-Host "* "$Report.name
+		}
 	}
+
+	Write-Host ""
+	Write-Host ""
+	Write-Host ""
 
 	# Now loop through these reports: 
 	ForEach($Report in $PBIReports)
 	{
+		# Skip reports that contain "Usage Metrics" in their name
+		if ($Report.name -like "*Usage Metrics*") {
+			Write-Host "Skipping report with 'Usage Metrics' in name: "$Report.name
+			continue
+		}
 		# Your PowerShell comandline will say Downloading Workspacename Reportname
+		Write-Host "============================================"
 		Write-Host "Downloading "$Workspace.name":" $Report.name 
+		Write-Host "============================================"
 		
 		# The final collection including folder structure + file name is created.
 		$OutputFile = $OutPutPath + "\" + $Workspace.name + "\" + $Report.name + ".pbix"
 		
 		# If the file exists, delete it first; otherwise, the Export-PowerBIReport will fail.
-		if (Test-Path $OutputFile)
-		{
+		if (Test-Path $OutputFile) {
 			Remove-Item $OutputFile
 		}
 		
-		# The pbix is now really getting downloaded
 		Export-PowerBIReport –WorkspaceId $Workspace.ID –Id $Report.ID –OutFile $OutputFile
-		
+
 		# Processing the file with Python
+		Write-Host "============================================"
 		Write-Host "Proccessing "$Workspace.name":" $Report.name
+		Write-Host "============================================"
 		python bookmarks_update.py --directory $OutPutPath --workspace $Workspace.name --report $Report.name
 		
-		# New-PowerBIReport doesn't like dots in Name parameter
+		Write-Host "======================================================"
 		Write-Host "Sending to PBI portal "$Workspace.name":" $Report.name
-		New-PowerBIReport -Path $OutputFile -Name $Report.name -WorkspaceId $Workspace.ID -ConflictAction CreateOrOverwrite
+		Write-Host "======================================================"
+		# New-PowerBIReport doesn't like dots in Name parameter
+		# New-PowerBIReport -Path $OutputFile -Name $Report.name -WorkspaceId $Workspace.ID -ConflictAction CreateOrOverwrite
+		New-PowerBIReport -Path $OutputFile -WorkspaceId $Workspace.ID -ConflictAction CreateOrOverwrite
+		Write-Host ""
+		Write-Host ""
 	}
 }
 
