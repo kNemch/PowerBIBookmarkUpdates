@@ -13,11 +13,11 @@ from zipfile import ZipFile
 """GLOBAL VARIABLES"""
 """Path constants"""
 # The values for these global path variables are assigned in the setup_work_dir_paths() function, depending on the CLI user input
-WORK_DIR_PATH:str = None    # Working directory with all the data
-ORIGINALS_DIR_PATH:str = None     # Directory for original files
-TEMP_DIR_PATH:str = None    # Directory for temporary (unarchived) files
+WORK_DIR_PATH:str = None        # Working directory with all the data
+ORIGINALS_DIR_PATH:str = None   # Directory for original files
+TEMP_DIR_PATH:str = None        # Directory for temporary (unarchived) files
 ERRORS_DIR_PATH:str = None 
-RESULTS_DIR_PATH:str = None # Directory for the modified .pbix files
+RESULTS_DIR_PATH:str = None     # Directory for the modified .pbix files
 
 
 """FUNCTIONS"""
@@ -275,8 +275,10 @@ def get_patterns_and_replacements(cli_arg_year, cli_arg_month, cli_arg_old_year)
         ("'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'", "'{}'".format(new_value_month_abbr)),  # month eng
         ("'\d{1,2}月'",     "'{}月'".format(new_value_month)),          # month chn
         ("'Q [1-4]'",       "'Q {}'".format(new_value_quarter)),        # quarter eng (with space)
-        ("'Q[1-4]'",    	"'Q{}'".format(new_value_quarter)),        # quarter eng (without space)
-        ("'[1-4]季度'",     "'{}季度'".format(new_value_quarter))      # quarter chn
+        ("'Q[1-4]'",    	"'Q{}'".format(new_value_quarter)),         # quarter eng (without space)
+        ("'[1-4]季度'",     "'{}季度'".format(new_value_quarter)),      # quarter chn
+        ("'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec), \d{4}'",
+         "'{}, {}'".format(new_value_month_abbr, new_value_year))       # exchange rate
     ]
 
     # the year values are replaced only if the user passes the old year value or the old year value is different from the new one
